@@ -68,7 +68,19 @@
       text-align: center;
       font-size: 30px;
     }
+.title-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
 
+.developer-credit {
+  margin-top: 3px;
+  font-size: 12px;
+  font-weight: 400;
+  color: #777;
+  text-align: center;
+}
     .bjh-logo {
       width: 64px;
       height: auto;
@@ -340,7 +352,10 @@
 
   <div class="app-header">
     <img id="leftLogo" src="" class="bjh-logo" alt="BJH Bobcat">
-    <h1>BJH Bell Countdown</h1>
+    <div class="title-stack">
+  <h1>BJH Bell Countdown</h1>
+  <div class="developer-credit">Developed by Shaun Ausmus</div>
+</div>
     <img id="rightLogo" src="" class="bjh-logo right" alt="BJH Bobcat">
   </div>
 
