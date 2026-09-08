@@ -234,85 +234,6 @@
     }
 
 
-    .calendar-tools {
-      margin-top: 16px;
-      padding-top: 16px;
-      border-top: 1px solid #e8eaed;
-    }
-
-    .calendar-heading {
-      margin-bottom: 8px;
-      font-size: 14px;
-      font-weight: 700;
-      color: #3c4043;
-    }
-
-    .calendar-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .calendar-row input[type="date"] {
-      border: 1px solid #dadce0;
-      border-radius: 10px;
-      padding: 8px 12px;
-      background: white;
-      color: #202124;
-    }
-
-    .calendar-link {
-      color: #1a73e8;
-      font-size: 13px;
-      font-weight: 700;
-      text-decoration: none;
-    }
-
-    .calendar-link:hover {
-      text-decoration: underline;
-    }
-
-    .minimum-day-list {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      margin-top: 10px;
-    }
-
-    .minimum-day-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      border: 1px solid #dadce0;
-      border-radius: 999px;
-      background: #f8f9fa;
-      padding: 6px 9px 6px 11px;
-      font-size: 12px;
-      color: #3c4043;
-    }
-
-    .minimum-day-chip button {
-      min-height: 0;
-      padding: 0;
-      border-radius: 50%;
-      background: transparent;
-      color: #5f6368;
-      font-size: 16px;
-      line-height: 1;
-    }
-
-    .minimum-day-chip button:hover {
-      background: transparent;
-      color: #d93025;
-    }
-
-    .calendar-empty {
-      margin-top: 8px;
-      color: #80868b;
-      font-size: 12px;
-      font-style: italic;
-    }
 
     .projector-exit {
       display: none;
@@ -433,25 +354,7 @@
     </div>
 
     <div class="small-note">
-      Saved minimum-day dates automatically use the Minimum Day schedule. Wednesday uses Late Start otherwise. Before school, after school, and on weekends, the countdown points to the next school start. You can override today’s schedule anytime.
-    </div>
-
-    <div class="calendar-tools">
-      <div class="calendar-heading">Minimum Day Calendar</div>
-      <div class="calendar-row">
-        <input id="minimumDayDate" type="date" aria-label="Minimum day date">
-        <button id="addMinimumDay" type="button">+ Add Minimum Day</button>
-        <a
-          class="calendar-link"
-          href="https://www.bousd.us/page/academic-calendar"
-          target="_blank"
-          rel="noopener noreferrer"
-        >View BOUSD Academic Calendar ↗</a>
-      </div>
-      <div id="minimumDayList" class="minimum-day-list"></div>
-      <div class="small-note">
-        Minimum-day dates are remembered on this browser.
-      </div>
+      Wednesday automatically uses the Late Start schedule. Select Minimum Day when needed. Before school, after school, and on weekends, the countdown points to the next school start. You can override today’s schedule anytime.
     </div>
   </div>
 
@@ -563,7 +466,6 @@
 
   const STATE_KEY = "bjhBellCountdownStandalone.state.v1";
   const PREFS_KEY = "bjhBellCountdownStandalone.prefs.v1";
-  const CALENDAR_KEY = "bjhBellCountdownStandalone.minimumDays.v1";
   const CHANGE_EVENT = "bjh-bell-countdown-standalone-changed";
 
   const WARNING_REPEAT_MS = 5000;
@@ -625,13 +527,6 @@
       String(date.getMonth() + 1).padStart(2, "0"),
       String(date.getDate()).padStart(2, "0")
     ].join("-");
-  }
-
-  function parseDateKey(key) {
-    const match = String(key || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!match) return null;
-    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0, 0);
-    return Number.isNaN(date.getTime()) ? null : date;
   }
 
   function sameDate(a, b) {
@@ -763,61 +658,7 @@
     return clone(next);
   }
 
-  function normalizeDateKeys(values) {
-    if (!Array.isArray(values)) return [];
-    return [...new Set(
-      values
-        .map(value => String(value || "").trim())
-        .filter(value => /^\d{4}-\d{2}-\d{2}$/.test(value) && parseDateKey(value))
-    )].sort();
-  }
-
-  function getMinimumDayDates() {
-    try {
-      return normalizeDateKeys(JSON.parse(localStorage.getItem(CALENDAR_KEY) || "[]"));
-    } catch (error) {
-      return [];
-    }
-  }
-
-  function setMinimumDayDates(values) {
-    const dates = normalizeDateKeys(values);
-    localStorage.setItem(CALENDAR_KEY, JSON.stringify(dates));
-
-    let state = loadState();
-    state.targetKey = "";
-    state.targetDeadline = 0;
-    state.warnings = [];
-    state.alarmActive = false;
-    saveState(state, {
-      type: "calendar-changed",
-      minimumDayDates: clone(dates)
-    });
-
-    return clone(dates);
-  }
-
-  function addMinimumDayDate(value) {
-    const key = String(value || "").trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || !parseDateKey(key)) {
-      throw new Error("Choose a valid minimum-day date.");
-    }
-    return setMinimumDayDates([...getMinimumDayDates(), key]);
-  }
-
-  function removeMinimumDayDate(value) {
-    return setMinimumDayDates(
-      getMinimumDayDates().filter(item => item !== String(value))
-    );
-  }
-
-  function isMinimumDayDate(dateOrKey) {
-    const key = dateOrKey instanceof Date ? dateKey(dateOrKey) : String(dateOrKey || "");
-    return getMinimumDayDates().includes(key);
-  }
-
   function getAutoScheduleKey(date = new Date()) {
-    if (isMinimumDayDate(date)) return "minimum";
     if (date.getDay() === 3) return "lateStart";
     return "regular";
   }
@@ -1448,7 +1289,7 @@
   }
 
   window.addEventListener("storage", event => {
-    if ([STATE_KEY, PREFS_KEY, CALENDAR_KEY].includes(event.key)) {
+    if ([STATE_KEY, PREFS_KEY].includes(event.key)) {
       window.dispatchEvent(
         new CustomEvent(CHANGE_EVENT, {
           detail: { type: "external-change" }
@@ -1486,12 +1327,7 @@
 
     formatCountdown,
     formatClockTime,
-    scheduleDisplayName,
-
-    getMinimumDayDates,
-    setMinimumDayDates,
-    addMinimumDayDate,
-    removeMinimumDayDate
+    scheduleDisplayName
   });
 
   setInterval(heartbeat, 250);
@@ -1522,8 +1358,6 @@
   const finalBellToggle = el("finalBellToggle");
   const customWarningMinutes = el("customWarningMinutes");
   const customWarningButton = el("customWarningButton");
-  const minimumDayDate = el("minimumDayDate");
-  const minimumDayList = el("minimumDayList");
 
   let lastScheduleKey = "";
   let lastTargetKey = "";
@@ -1649,49 +1483,6 @@
       "visible",
       BellService.isAlarmActive()
     );
-  }
-
-  function renderMinimumDays() {
-    const dates = BellService.getMinimumDayDates();
-    minimumDayList.replaceChildren();
-
-    if (!dates.length) {
-      const empty = document.createElement("div");
-      empty.className = "calendar-empty";
-      empty.textContent = "No minimum days saved yet.";
-      minimumDayList.appendChild(empty);
-      return;
-    }
-
-    dates.forEach(dateKey => {
-      const [year, month, day] = dateKey.split("-").map(Number);
-      const date = new Date(year, month - 1, day, 12, 0, 0, 0);
-
-      const chip = document.createElement("span");
-      chip.className = "minimum-day-chip";
-
-      const label = document.createElement("span");
-      label.textContent = date.toLocaleDateString([], {
-        weekday: "short",
-        month: "short",
-        day: "numeric"
-      });
-
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.setAttribute("aria-label", `Remove ${label.textContent}`);
-      remove.title = "Remove minimum day";
-      remove.textContent = "×";
-
-      remove.addEventListener("click", () => {
-        BellService.removeMinimumDayDate(dateKey);
-        renderMinimumDays();
-        render();
-      });
-
-      chip.append(label, remove);
-      minimumDayList.appendChild(chip);
-    });
   }
 
   function renderPreferences() {
@@ -1830,25 +1621,6 @@
     });
   });
 
-  el("addMinimumDay").addEventListener("click", () => {
-    try {
-      BellService.addMinimumDayDate(minimumDayDate.value);
-      minimumDayDate.value = "";
-      message.textContent = "Minimum day saved.";
-      renderMinimumDays();
-      render();
-    } catch (error) {
-      message.textContent = error.message;
-    }
-  });
-
-  minimumDayDate.addEventListener("keydown", event => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      el("addMinimumDay").click();
-    }
-  });
-
   alarmSound.addEventListener("change", async () => {
     BellService.setPreferences({
       alarmSound: alarmSound.value
@@ -1950,16 +1722,11 @@
         }
       }
 
-      if (event.detail?.type === "calendar-changed") {
-        renderMinimumDays();
-      }
-
       render();
     }
   );
 
   renderPreferences();
-  renderMinimumDays();
   render();
   setInterval(render, 500);
 })();
