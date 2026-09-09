@@ -369,7 +369,7 @@
     </div>
 
     <div class="small-note">
-      Wednesday automatically uses the Late Start schedule. Select Minimum Day when needed. Before school, after school, and on weekends, the countdown points to the next school start. You can override today’s schedule anytime.
+      Wednesday automatically uses the Late Start schedule. Select Minimum Day when needed. Passing periods are detected automatically. Before school, after school, and on weekends, the countdown points to the next school start. You can override today’s schedule anytime.
     </div>
   </div>
 
@@ -485,6 +485,7 @@
 
   const WARNING_REPEAT_MS = 5000;
   const WARNING_DURATION_MS = 60000;
+  const PASSING_PERIOD_MINUTES = 4;
 
   const SCHOOL_STARTS = Object.freeze({
     regular: "08:10",
@@ -695,6 +696,10 @@
     return "Regular";
   }
 
+  function isClassEntry(entry) {
+    return /^Period\s+[1-7]$/i.test(String(entry?.name || ""));
+  }
+
   function timeOnDate(timeString, baseDate) {
     const [hours, minutes] = String(timeString).split(":").map(Number);
     return new Date(
@@ -849,13 +854,63 @@
       };
     }
 
-    // During the school day: count down to the next schedule endpoint.
+    // During the school day: automatically insert a 4-minute passing
+    // period immediately before each class after Period 1. This preserves
+    // the full Snack/Lunch blocks while still showing the real transition
+    // time into the next class, with no separate Passing Period button.
     if (isSchoolDay(now)) {
-      const entry =
-        todaySchedule.find(item => timeOnDate(item.end, now) > now) || null;
-
-      if (entry) {
+      for (let index = 0; index < todaySchedule.length; index += 1) {
+        const entry = todaySchedule[index];
         const targetTime = timeOnDate(entry.end, now);
+
+        if (targetTime <= now) {
+          continue;
+        }
+
+        if (isClassEntry(entry) && index > 0) {
+          const previousEntry = todaySchedule[index - 1];
+          const previousEnd = timeOnDate(previousEntry.end, now);
+          const passingEnd = new Date(
+            previousEnd.getTime() + PASSING_PERIOD_MINUTES * 60 * 1000
+          );
+
+          if (now >= previousEnd && now < passingEnd) {
+            const targetKey = [
+              todayKey,
+              todayScheduleKey,
+              "passing",
+              previousEntry.name,
+              entry.name,
+              passingEnd.getTime()
+            ].join("|");
+
+            const remainingSeconds = Math.ceil((passingEnd - now) / 1000);
+
+            return {
+              dateKey: todayKey,
+              targetDateKey: todayKey,
+              targetDayLabel: "Today",
+              phase: "passing",
+              schoolDay: true,
+              scheduleKey: todayScheduleKey,
+              scheduleMode: state.scheduleMode,
+              scheduleLabel: scheduleDisplayName(todayScheduleKey),
+              schedule: todaySchedule,
+              entry: null,
+              nextEntry: clone(entry),
+              targetTime: passingEnd,
+              targetKey,
+              remainingSeconds,
+              displayCountdown: formatCountdown(remainingSeconds),
+              complete: false,
+              manualEntry: false,
+              minimumDayAuto:
+                state.scheduleMode === "auto" && todayScheduleKey === "minimum",
+              countdownType: "passingPeriod"
+            };
+          }
+        }
+
         const targetKey = [
           todayKey,
           todayScheduleKey,
@@ -957,6 +1012,12 @@
       !state.targetDeadline ||
       state.targetDeadline > Date.now()
     ) {
+      return state;
+    }
+
+    // Passing Period is an automatic transition display, not a class bell.
+    // Do not play the optional Final Bell when the 4-minute passing timer ends.
+    if (state.targetKey.split("|")[2] === "passing") {
       return state;
     }
 
@@ -1478,11 +1539,15 @@
 
     const beforeSchoolTarget =
       snapshot.countdownType === "schoolStart";
+    const passingTarget =
+      snapshot.countdownType === "passingPeriod";
 
     el("customWarningContext").textContent =
       beforeSchoolTarget
         ? "minutes before school begins"
-        : "minutes before end";
+        : passingTarget
+          ? "minutes before passing period ends"
+          : "minutes before end";
 
     armedSummary.replaceChildren();
 
@@ -1490,7 +1555,9 @@
       const line = document.createElement("div");
       line.textContent = beforeSchoolTarget
         ? `${item.minutes}-minute warning before school armed.`
-        : `${item.minutes}-minute warning armed.`;
+        : passingTarget
+          ? `${item.minutes}-minute warning before passing period ends armed.`
+          : `${item.minutes}-minute warning armed.`;
       armedSummary.appendChild(line);
     });
 
@@ -1533,6 +1600,12 @@
       endTime.textContent =
         `${snapshot.targetDayLabel} • ${snapshot.scheduleLabel} • School begins at ${BellService.formatClockTime(snapshot.targetTime)}`;
       countdown.textContent = snapshot.displayCountdown;
+    } else if (snapshot.countdownType === "passingPeriod") {
+      periodName.textContent = "Passing Period";
+      endTime.textContent =
+        "Ends at " +
+        BellService.formatClockTime(snapshot.targetTime);
+      countdown.textContent = snapshot.displayCountdown;
     } else {
       periodName.textContent = snapshot.entry.name;
       endTime.textContent =
@@ -1550,6 +1623,9 @@
     } else if (snapshot.phase === "beforeSchool") {
       el("autoStatus").textContent =
         "Before school • Counting to school start";
+    } else if (snapshot.phase === "passing") {
+      el("autoStatus").textContent =
+        "Passing period • Auto Detect is on";
     } else {
       el("autoStatus").textContent =
         snapshot.manualEntry
@@ -1724,7 +1800,9 @@
           message.textContent =
             snapshot.countdownType === "schoolStart"
               ? `🔔 ${event.detail.minutes} minutes until school begins!`
-              : `🔔 ${event.detail.minutes} minutes remaining!`;
+              : snapshot.countdownType === "passingPeriod"
+                ? `🔔 ${event.detail.minutes} minutes until passing period ends!`
+                : `🔔 ${event.detail.minutes} minutes remaining!`;
         }
       } else if (
         event.detail?.type === "alarm-stopped" &&
