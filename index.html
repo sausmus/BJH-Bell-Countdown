@@ -369,7 +369,7 @@
     </div>
 
     <div class="small-note">
-      Wednesday automatically uses the Late Start schedule. Select Minimum Day when needed. Passing periods are detected automatically. Before school, after school, and on weekends, the countdown points to the next school start. You can override today’s schedule anytime.
+      Wednesday automatically uses the Late Start schedule. Select Minimum Day when needed. Passing periods are detected automatically, including the 5-minute passing period after the first bell before Period 1. Before school, after school, and on weekends, the countdown points to the next first bell. You can override today’s schedule anytime.
     </div>
   </div>
 
@@ -486,7 +486,9 @@
   const WARNING_REPEAT_MS = 5000;
   const WARNING_DURATION_MS = 60000;
   const PASSING_PERIOD_MINUTES = 4;
+  const START_OF_DAY_PASSING_MINUTES = 5;
 
+  // These are the first-bell times. Period 1 begins five minutes later.
   const SCHOOL_STARTS = Object.freeze({
     regular: "08:10",
     lateStart: "09:02",
@@ -700,6 +702,13 @@
     return /^Period\s+[1-7]$/i.test(String(entry?.name || ""));
   }
 
+  function startOfDayPassingEnd(scheduleKey, baseDate = new Date()) {
+    const firstBell = timeOnDate(SCHOOL_STARTS[scheduleKey], baseDate);
+    return new Date(
+      firstBell.getTime() + START_OF_DAY_PASSING_MINUTES * 60 * 1000
+    );
+  }
+
   function timeOnDate(timeString, baseDate) {
     const [hours, minutes] = String(timeString).split(":").map(Number);
     return new Date(
@@ -777,9 +786,84 @@
 
     const todayScheduleKey = getScheduleKeyForDate(now, state);
     const todaySchedule = clone(SCHEDULES[todayScheduleKey]);
-    const todayStart = timeOnDate(SCHOOL_STARTS[todayScheduleKey], now);
+    const firstBellTime = timeOnDate(SCHOOL_STARTS[todayScheduleKey], now);
+    const periodOneStartTime = startOfDayPassingEnd(todayScheduleKey, now);
 
-    // A manual period selection always wins as long as that target is still ahead.
+    // Before the first bell on a weekday: count down to that day's first bell.
+    if (isSchoolDay(now) && now < firstBellTime) {
+      const targetKey = [
+        todayKey,
+        todayScheduleKey,
+        "schoolStart",
+        SCHOOL_STARTS[todayScheduleKey]
+      ].join("|");
+
+      const remainingSeconds = Math.ceil((firstBellTime - now) / 1000);
+
+      return {
+        dateKey: todayKey,
+        targetDateKey: todayKey,
+        targetDayLabel: "Today",
+        phase: "beforeSchool",
+        schoolDay: true,
+        scheduleKey: todayScheduleKey,
+        scheduleMode: state.scheduleMode,
+        scheduleLabel: scheduleDisplayName(todayScheduleKey),
+        schedule: todaySchedule,
+        entry: null,
+        targetTime: firstBellTime,
+        targetKey,
+        remainingSeconds,
+        displayCountdown: formatCountdown(remainingSeconds),
+        complete: false,
+        manualEntry: false,
+        minimumDayAuto:
+          state.scheduleMode === "auto" && todayScheduleKey === "minimum",
+        countdownType: "schoolStart"
+      };
+    }
+
+    // The first bell begins a 5-minute passing period before Period 1.
+    if (isSchoolDay(now) && now < periodOneStartTime) {
+      const firstClass = todaySchedule.find(isClassEntry) || null;
+      const targetKey = [
+        todayKey,
+        todayScheduleKey,
+        "passing",
+        "First Bell",
+        firstClass?.name || "Period 1",
+        periodOneStartTime.getTime()
+      ].join("|");
+
+      const remainingSeconds = Math.ceil((periodOneStartTime - now) / 1000);
+
+      return {
+        dateKey: todayKey,
+        targetDateKey: todayKey,
+        targetDayLabel: "Today",
+        phase: "passing",
+        schoolDay: true,
+        scheduleKey: todayScheduleKey,
+        scheduleMode: state.scheduleMode,
+        scheduleLabel: scheduleDisplayName(todayScheduleKey),
+        schedule: todaySchedule,
+        entry: null,
+        nextEntry: firstClass ? clone(firstClass) : null,
+        targetTime: periodOneStartTime,
+        targetKey,
+        remainingSeconds,
+        displayCountdown: formatCountdown(remainingSeconds),
+        complete: false,
+        manualEntry: false,
+        startOfDayPassing: true,
+        minimumDayAuto:
+          state.scheduleMode === "auto" && todayScheduleKey === "minimum",
+        countdownType: "passingPeriod"
+      };
+    }
+
+    // Manual period selection applies after the automatic start-of-day passing
+    // period, matching the Dashboard 4.0 behavior.
     if (state.manualEntryName && isSchoolDay(now)) {
       const manual = todaySchedule.find(item => item.name === state.manualEntryName);
       if (manual) {
@@ -799,7 +883,7 @@
             dateKey: todayKey,
             targetDateKey: todayKey,
             targetDayLabel: "Today",
-            phase: now < todayStart ? "beforeSchool" : "school",
+            phase: "school",
             schoolDay: true,
             scheduleKey: todayScheduleKey,
             scheduleMode: state.scheduleMode,
@@ -818,40 +902,6 @@
           };
         }
       }
-    }
-
-    // Before school on a weekday: count down to that day's start.
-    if (isSchoolDay(now) && now < todayStart) {
-      const targetKey = [
-        todayKey,
-        todayScheduleKey,
-        "schoolStart",
-        SCHOOL_STARTS[todayScheduleKey]
-      ].join("|");
-
-      const remainingSeconds = Math.ceil((todayStart - now) / 1000);
-
-      return {
-        dateKey: todayKey,
-        targetDateKey: todayKey,
-        targetDayLabel: "Today",
-        phase: "beforeSchool",
-        schoolDay: true,
-        scheduleKey: todayScheduleKey,
-        scheduleMode: state.scheduleMode,
-        scheduleLabel: scheduleDisplayName(todayScheduleKey),
-        schedule: todaySchedule,
-        entry: null,
-        targetTime: todayStart,
-        targetKey,
-        remainingSeconds,
-        displayCountdown: formatCountdown(remainingSeconds),
-        complete: false,
-        manualEntry: false,
-        minimumDayAuto:
-          state.scheduleMode === "auto" && todayScheduleKey === "minimum",
-        countdownType: "schoolStart"
-      };
     }
 
     // During the school day: automatically insert a 4-minute passing
@@ -945,7 +995,7 @@
       }
     }
 
-    // Weekend or after school: find the next weekday and count to its start.
+    // Weekend or after school: find the next weekday and count to its first bell.
     let targetDate;
     let phase;
 
@@ -1544,7 +1594,7 @@
 
     el("customWarningContext").textContent =
       beforeSchoolTarget
-        ? "minutes before school begins"
+        ? "minutes before first bell"
         : passingTarget
           ? "minutes before passing period ends"
           : "minutes before end";
@@ -1554,7 +1604,7 @@
     armed.forEach(item => {
       const line = document.createElement("div");
       line.textContent = beforeSchoolTarget
-        ? `${item.minutes}-minute warning before school armed.`
+        ? `${item.minutes}-minute warning before first bell armed.`
         : passingTarget
           ? `${item.minutes}-minute warning before passing period ends armed.`
           : `${item.minutes}-minute warning armed.`;
@@ -1596,9 +1646,9 @@
     updateCurrentTime();
 
     if (snapshot.countdownType === "schoolStart") {
-      periodName.textContent = "Time Until School Begins";
+      periodName.textContent = "Time Until First Bell";
       endTime.textContent =
-        `${snapshot.targetDayLabel} • ${snapshot.scheduleLabel} • School begins at ${BellService.formatClockTime(snapshot.targetTime)}`;
+        `${snapshot.targetDayLabel} • ${snapshot.scheduleLabel} • First bell at ${BellService.formatClockTime(snapshot.targetTime)}`;
       countdown.textContent = snapshot.displayCountdown;
     } else if (snapshot.countdownType === "passingPeriod") {
       periodName.textContent = "Passing Period";
@@ -1616,13 +1666,13 @@
 
     if (snapshot.phase === "weekend") {
       el("autoStatus").textContent =
-        "Weekend • Counting to the next school day";
+        "Weekend • Counting to the next first bell";
     } else if (snapshot.phase === "afterSchool") {
       el("autoStatus").textContent =
-        "School day complete • Counting to the next school day";
+        "School day complete • Counting to the next first bell";
     } else if (snapshot.phase === "beforeSchool") {
       el("autoStatus").textContent =
-        "Before school • Counting to school start";
+        "Before school • Counting to first bell";
     } else if (snapshot.phase === "passing") {
       el("autoStatus").textContent =
         "Passing period • Auto Detect is on";
@@ -1799,7 +1849,7 @@
           const snapshot = BellService.getSnapshot();
           message.textContent =
             snapshot.countdownType === "schoolStart"
-              ? `🔔 ${event.detail.minutes} minutes until school begins!`
+              ? `🔔 ${event.detail.minutes} minutes until first bell!`
               : snapshot.countdownType === "passingPeriod"
                 ? `🔔 ${event.detail.minutes} minutes until passing period ends!`
                 : `🔔 ${event.detail.minutes} minutes remaining!`;
